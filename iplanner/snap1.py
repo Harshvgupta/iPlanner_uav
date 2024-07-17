@@ -31,17 +31,6 @@ class TrajectoryUtils:
         
         return time_vector
     @staticmethod
-    def calculate_time_vector_vectorized1(time, order, derivative_order):
-        batch_size = time.shape[0]
-        time_vector = torch.zeros(batch_size, order + 1, dtype=dtype, device=device)
-        
-        for i in range(derivative_order + 1, order + 2):
-            seq = torch.arange(i - derivative_order, i, dtype=dtype, device=device).unsqueeze(0).expand(batch_size, -1)
-            product = torch.prod(seq, dim=-1)
-            time_vector[:, i - 1] = product * (time ** (i - derivative_order - 1))
-        
-        return time_vector
-    @staticmethod
     def ensure_spd_matrix(Q, method='eigenvalue_clip', min_eigenvalue=1e-6):
         """
         Ensure a matrix is symmetric positive definite using various methods.
@@ -171,34 +160,6 @@ class UAVTrajectoryPlanner(nn.Module):
         self.qp_solver = None
         self.dtype=torch.float64
         self.device='cuda'
-
-    def init_time_segments1(self, waypoints, total_time):
-        # Ensure waypoints is on CUDA
-        if waypoints.shape[1] == 2:
-            return torch.tensor([0, total_time], dtype=dtype, device=device)
-        waypoints = waypoints.cuda()
-
-        differences = waypoints[:, 1:] - waypoints[:, :-1]
-        distances = torch.sqrt(torch.sum(differences ** 2, dim=0))
-
-        total_time = torch.tensor(total_time, device='cuda', dtype=waypoints.dtype)
-
-        safe_distances = torch.clamp(distances, min=1e-6)
-        time_fraction = total_time / torch.sum(safe_distances)
-        arranged_time = torch.cumsum(safe_distances * time_fraction, dim=0)
-        arranged_time = torch.cat([torch.tensor([0], dtype=torch.float64, device='cuda'), arranged_time])
-        # print(arranged_time)
-        
-        # Move scalar to CUDA
-        # total_time = torch.tensor(total_time, device='cuda', dtype=waypoints.dtype)
-        
-        # time_fraction = total_time / torch.sum(distances)
-        
-        # Create the initial zero tensor on CUDA
-        # zero_tensor = torch.tensor([0], device='cuda', dtype=waypoints.dtype)
-        
-        # arranged_time = torch.cat([zero_tensor, torch.cumsum(distances * time_fraction, dim=0)])
-        return arranged_time
         
     def init_time_segments(self, waypoints, total_time):
         if waypoints.shape[1] == 2:
@@ -286,56 +247,21 @@ class UAVTrajectoryPlanner(nn.Module):
 
         G_dummy = torch.zeros(1, Q_all.size(0), Q_all.size(0), dtype=dtype, device=device)
         h_dummy = torch.zeros(1, Q_all.size(0), dtype=dtype, device=device)
-        # x_min = torch.tensor([-0.1], dtype=dtype, device=device)
-        # x_max = torch.tensor([0.1], dtype=dtype, device=device)
-
-        # The final position index in the solution vector
-        # final_position_index = (num_segments - 1) * num_coefficients
-
-        # Update G and h for the inequality constraints
-        # G_dummy = torch.zeros(2, Q_all.size(0), dtype=dtype, device=device)
-        # h_dummy = torch.zeros(2, dtype=dtype, device=device)
-
-        # Set the constraints for the final position
-        # G_dummy[0, final_position_index] = 1  # x_final >= x_min -> x_final - x_min >= 0
-        # G_dummy[1, final_position_index] = -1 # x_final <= x_max -> x_max - x_final >= 0
-
-        # h_dummy[0] = -x_min
-        # h_dummy[1] = x_max
-        epsilon = 1e-3  # Tolerance for end point constraint
-        G = torch.zeros(2, num_coefficients * num_segments, dtype=dtype, device=device)
-        h = torch.zeros(2, dtype=dtype, device=device)
-
-        final_time_vector = TrajectoryUtils.calculate_time_vector_vectorized(time_stamps[-1].unsqueeze(0), poly_order, 0)[0]
-        G[0, -num_coefficients:] = final_time_vector  # x_final <= end_pos + epsilon
-        G[1, -num_coefficients:] = -final_time_vector  # -x_final <= -end_pos + epsilon
-        h[0] = end_pos + epsilon
-        h[1] = -end_pos + epsilon
-        # Q_all += torch.eye(Q_all.size(0), dtype=dtype, device=device) * 1e-10
+    
+        
         lambda_val = 1e-5  # Regularization parameter
-        # final_position_index = -1  # Assuming it is the last coefficient
-        # Q_all[final_position_index, final_position_index] += lambda_val
-        # b_all[final_position_index] -= lambda_val * end_pos
         initial_pos = 0  # Correct index for final position
-        # Q_all[final_position_index, final_position_index] += lambda_val
-        # b_all[final_position_index] -= lambda_val * end_pos
         for i in range(num_coefficients):
             Q_all[initial_pos + i, initial_pos + i] += lambda_val
             b_all[initial_pos + i] -= lambda_val * end_pos
         final_position_index = (num_segments - 1) * num_coefficients  # Correct index for final position
-        # Q_all[final_position_index, final_position_index] += lambda_val
-        # b_all[final_position_index] -= lambda_val * end_pos
         for i in range(num_coefficients):
             Q_all[final_position_index + i, final_position_index + i] += lambda_val
             b_all[final_position_index + i] -= lambda_val * end_pos
-        # Q_all_updated = TrajectoryUtils.ensure_spd_matrix(Q_all, method='cholesky_with_perturbation')
+        
         Q_all_updated = Q_all+torch.eye(Q_all.size(0), dtype=dtype, device=device) * 1e-4
 
         # Q_all_updated = TrajectoryUtils.ensure_spd_matrix(Q_all_updated, method='cholesky_with_perturbation')
-        # Q_all_updated=Q_all_updated.requires_grad_()
-        # Aeq=Aeq.requires_grad_()
-        # beq=beq.requires_grad_()
-        # b_all=b_all.requires_grad_()
         eigenvalues = torch.linalg.eigvalsh(Q_all_updated)
         if torch.any(eigenvalues <= 0):
             print("Q is not positive definite")
@@ -351,13 +277,6 @@ class UAVTrajectoryPlanner(nn.Module):
         except RuntimeError as e:
             print(f"QPFunction failed with error: {e}")
             solution = torch.zeros(num_segments * num_coefficients, dtype=self.dtype, device=self.device)
-    
-
-        # Re-attach the solution to the computation graph
-        # solution = solution.detach().requires_grad_()
-        # solution_attached = torch.nn.Parameter(solution.clone(), requires_grad=True)
-        
-    
 
         polynomial_coefficients = solution.view(num_segments, num_coefficients).transpose(0, 1)
         # polynomial_coefficients.retain_grad()
@@ -370,24 +289,17 @@ class UAVTrajectoryPlanner(nn.Module):
     def forward(self, waypoints, total_time):
         waypoints = waypoints.to(device=device, dtype=dtype)
         self.waypoints = waypoints
-        # waypoints.requires_grad_()
         optimized_time_segments = self.init_time_segments(waypoints, total_time)
         
         if torch.isnan(optimized_time_segments).any():
             print("NaNs detected in forward optimized_time_segments")
         
         polys_x = self.solve_minimum_snap(waypoints[0], optimized_time_segments, self.poly_order, self.start_vel[0], self.start_acc[0], self.end_vel[0], self.end_acc[0])
-        # polys_x=polys_x.requires_grad_()
+        
         polys_y = self.solve_minimum_snap(waypoints[1], optimized_time_segments, self.poly_order, self.start_vel[1], self.start_acc[1], self.end_vel[1], self.end_acc[1])
-        # polys_y=polys_y.requires_grad_()
+        
         polys_z = self.solve_minimum_snap(waypoints[2], optimized_time_segments, self.poly_order, self.start_vel[2], self.start_acc[2], self.end_vel[2], self.end_acc[2])
-        # polys_z=polys_z.requires_grad_()
-        # polys_x.retain_grad()
-        # polys_y.retain_grad()
-        # polys_z.retain_grad()
-        # print(f"polys_x requires_grad: {polys_x.requires_grad}")
-        # print(f"polys_y requires_grad: {polys_y.requires_grad}")
-        # print(f"polys_z requires_grad: {polys_z.requires_grad}")
+        
         return polys_x, polys_y, polys_z, optimized_time_segments
 
 
