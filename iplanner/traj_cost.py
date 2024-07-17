@@ -71,4 +71,4 @@ class TrajCost:
         fear_labels = torch.max(floss_M, 1, keepdim=True)[0]
         fear_labels = (fear_labels > obstalce_thred).to(torch.float32)
 
-        return alpha*oloss + beta*hloss + gamma*mloss + delta*gloss, fear_labels
+        return alpha*oloss  + gamma*mloss + delta*gloss, fear_labels
