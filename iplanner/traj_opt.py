@@ -117,7 +117,89 @@ class TrajOpt:
     
     
 
+"""closed from solution"""
 
+class TrajOpt1:
+    def __init__(self):
+        total_time = 50.0
+        poly_order = 5
+        start_vel = torch.zeros(3, dtype=torch.float32)
+        start_acc = torch.zeros(3, dtype=torch.float32)
+        end_vel = torch.zeros(3, dtype=torch.float32)
+        end_acc = torch.zeros(3, dtype=torch.float32)
+        self.min_snap_planner = MinimumSnapTrajectoryPlanner(total_time, poly_order, start_vel, start_acc, end_vel, end_acc)
+
+    def interpolate_trajectory(self, coeffs_x, coeffs_y, coeffs_z, time_stamps, num_points):
+        """
+        Interpolates polynomial trajectories for x, y, and z coordinates.
+
+        Args:
+            coeffs_x (torch.Tensor): Tensor of x polynomial coefficients
+            coeffs_y (torch.Tensor): Tensor of y polynomial coefficients
+            coeffs_z (torch.Tensor): Tensor of z polynomial coefficients
+            time_stamps (torch.Tensor): Tensor of time stamps
+            num_points (int): Total number of points to interpolate along the entire trajectory
+
+        Returns:
+            torch.Tensor: Interpolated points
+        """
+        device = coeffs_x.device
+        batch_size = coeffs_x.shape[0]
+
+        # Create batch-specific time ranges
+        start_times = time_stamps[:, 0]
+        end_times = time_stamps[:, -1]
+        times = torch.zeros(batch_size, num_points, device=device)
+
+        for i in range(batch_size):
+            times[i] = torch.linspace(start_times[i].item(), end_times[i].item(), num_points, device=device)
+
+        x_values = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_x, time_stamps, times, 0)
+        y_values = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_y, time_stamps, times, 0)
+        z_values = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_z, time_stamps, times, 0)
+
+        return torch.stack([x_values, y_values, z_values], dim=-1)
+
+    def TrajGeneratorFromPFreeRot(self, preds, step):
+        """
+        Generates trajectory from predictions with free rotation.
+
+        Args:
+            preds (torch.Tensor): Predictions tensor
+            step (int): Step number
+
+        Returns:
+            torch.Tensor: Interpolated points
+        """
+        use_cuda = preds.is_cuda
+        batch_size, num_p, dims = preds.shape
+        preds=preds.requires_grad_()
+        points_preds = torch.cat((torch.zeros(batch_size, 1, dims, device=preds.device, requires_grad=preds.requires_grad), preds), axis=1)
+        points_preds.register_hook(lambda grad: print("points_preds grad:", grad))
+        num_p = num_p + 1
+        total_time = 50.0
+
+        all_polys_x, all_polys_y, all_polys_z, all_optimized_times = [], [], [], []
+        for i in range(batch_size):
+            waypoints = points_preds[i].permute(1, 0)
+            polys_x, polys_y, polys_z, optimized_times = self.min_snap_planner.forward(waypoints, total_time)
+            all_polys_x.append(polys_x)
+            all_polys_y.append(polys_y)
+            all_polys_z.append(polys_z)
+            all_optimized_times.append(optimized_times)
+
+        all_polys_x = torch.stack(all_polys_x)
+        all_polys_y = torch.stack(all_polys_y)
+        all_polys_z = torch.stack(all_polys_z)
+        all_optimized_times = torch.stack(all_optimized_times)
+
+        num_points = 51
+        interpolated_points = self.interpolate_trajectory(all_polys_x, all_polys_y, all_polys_z, all_optimized_times, num_points)
+
+        if torch.isnan(interpolated_points).any():
+            print("NaNs detected in TrajGeneratorFromPFreeRot interpolated_trajs")
+
+        return interpolated_points
 
 
 
