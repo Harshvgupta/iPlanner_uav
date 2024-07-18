@@ -270,7 +270,7 @@ class UAVTrajectoryPlanner(nn.Module):
     
         try:
             solution = QPFunction(verbose=-1, **solver_options)(
-               Q_all_updated, b_all, G, h, Aeq, beq
+               Q_all_updated, b_all, G_dummy, h_dummy, Aeq, beq
             )
             # solution = solution.requires_grad_()
             # print(f"solution requires_grad: {solution.requires_grad}")
