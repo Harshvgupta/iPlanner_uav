@@ -103,7 +103,12 @@ class iPlannerNode:
                 cur_image = self.img.copy()
                 start = time.time()
                 # Network Planning
-                self.preds, self.waypoints, fear_output, _ = self.iplanner_algo.plan(cur_image, self.goal_rb)
+                # self.preds, self.waypoints, fear_output, _ = self.iplanner_algo.plan(cur_image, self.goal_rb)
+                # end = time.time()
+                # self.timer_data.data = (end - start) * 1000
+                # self.timer_pub.publish(self.timer_data)
+
+                self.preds, self.waypoints, self.velocities, self.accelerations, fear_output, _ = self.iplanner_algo.plan(cur_image, self.goal_rb)
                 end = time.time()
                 self.timer_data.data = (end - start) * 1000
                 self.timer_pub.publish(self.timer_data)
@@ -128,20 +133,48 @@ class iPlannerNode:
                         if self.planner_status.data == 0:
                             self.planner_status.data = -1
                             self.status_pub.publish(self.planner_status)
-                self.pubPath(self.waypoints, self.is_goal_init)
+                # self.pubPath(self.waypoints, self.is_goal_init)
+                self.pubPath(self.waypoints, self.velocities, self.accelerations, self.is_goal_init)
             r.sleep()
         rospy.spin()
 
-    def pubPath(self, waypoints, is_goal_init=True):
+    # def pubPath(self, waypoints, is_goal_init=True):
+    #     path = Path()
+    #     fear_path = Path()
+    #     if is_goal_init:
+    #         for p in waypoints.squeeze(0):
+    #             pose = PoseStamped()
+    #             pose.pose.position.x = p[0]
+    #             pose.pose.position.y = p[1]
+    #             pose.pose.position.z = p[2]
+    #             path.poses.append(pose)
+    #     # add header
+    #     path.header.frame_id = fear_path.header.frame_id = self.frame_id
+    #     path.header.stamp = fear_path.header.stamp = self.image_time
+    #     # publish fear path
+    #     if self.is_fear_reaction:
+    #         fear_path.poses = path.poses.copy()
+    #         path.poses = path.poses[:1]
+    #     # publish path
+    #     self.fear_path_pub.publish(fear_path)
+    #     self.path_pub.publish(path)
+    #     return
+    def pubPath(self, waypoints, velocities, accelerations, is_goal_init=True):
         path = Path()
         fear_path = Path()
         if is_goal_init:
-            for p in waypoints.squeeze(0):
-                pose = PoseStamped()
-                pose.pose.position.x = p[0]
-                pose.pose.position.y = p[1]
-                pose.pose.position.z = p[2]
-                path.poses.append(pose)
+            for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
+                pose_vel_acc = PoseVelAcc()
+                pose_vel_acc.pose.position.x = p[0]
+                pose_vel_acc.pose.position.y = p[1]
+                pose_vel_acc.pose.position.z = p[2]
+                pose_vel_acc.velocity.x = v[0]
+                pose_vel_acc.velocity.y = v[1]
+                pose_vel_acc.velocity.z = v[2]
+                pose_vel_acc.acceleration.x = a[0]
+                pose_vel_acc.acceleration.y = a[1]
+                pose_vel_acc.acceleration.z = a[2]
+                path.poses.append(pose_vel_acc)
         # add header
         path.header.frame_id = fear_path.header.frame_id = self.frame_id
         path.header.stamp = fear_path.header.stamp = self.image_time
