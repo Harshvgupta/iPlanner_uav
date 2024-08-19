@@ -31,7 +31,7 @@ class TimingContext:
             self.end = time.perf_counter()
             elapsed_time = self.end - self.start
         print(f"{self.name} took {elapsed_time:.6f} seconds")
-class TrajOpt:
+class TrajOpt1:
     def __init__(self):
         super(TrajOpt, self).__init__()
         total_time = 50.0
@@ -119,7 +119,7 @@ class TrajOpt:
 
 """closed from solution"""
 
-class TrajOpt1:
+class TrajOpt:
     def __init__(self):
         total_time = 50.0
         poly_order = 5
@@ -158,7 +158,15 @@ class TrajOpt1:
         y_values = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_y, time_stamps, times, 0)
         z_values = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_z, time_stamps, times, 0)
 
-        return torch.stack([x_values, y_values, z_values], dim=-1)
+        x_vel = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_x, time_stamps, times, 1)
+        y_vel = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_y, time_stamps, times, 1)
+        z_vel = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_z, time_stamps, times, 1)
+
+        x_acc = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_x, time_stamps, times, 2)
+        y_acc = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_y, time_stamps, times, 2)
+        z_acc = self.min_snap_planner.evaluate_polynomials_vectorized(coeffs_z, time_stamps, times, 2)
+
+        return torch.stack([x_values, y_values, z_values], dim=-1),torch.stack([x_vel, y_vel, z_vel], dim=-1),torch.stack([x_acc, y_acc, z_acc], dim=-1)
 
     def TrajGeneratorFromPFreeRot(self, preds, step):
         """
@@ -175,9 +183,9 @@ class TrajOpt1:
         batch_size, num_p, dims = preds.shape
         preds=preds.requires_grad_()
         points_preds = torch.cat((torch.zeros(batch_size, 1, dims, device=preds.device, requires_grad=preds.requires_grad), preds), axis=1)
-        points_preds.register_hook(lambda grad: print("points_preds grad:", grad))
+        # points_preds.register_hook(lambda grad: print("points_preds grad:", grad))
         num_p = num_p + 1
-        total_time = 50.0
+        total_time = 80.0
 
         all_polys_x, all_polys_y, all_polys_z, all_optimized_times = [], [], [], []
         for i in range(batch_size):
@@ -194,12 +202,12 @@ class TrajOpt1:
         all_optimized_times = torch.stack(all_optimized_times)
 
         num_points = 51
-        interpolated_points = self.interpolate_trajectory(all_polys_x, all_polys_y, all_polys_z, all_optimized_times, num_points)
+        interpolated_points,vel,acc = self.interpolate_trajectory(all_polys_x, all_polys_y, all_polys_z, all_optimized_times, num_points)
 
         if torch.isnan(interpolated_points).any():
             print("NaNs detected in TrajGeneratorFromPFreeRot interpolated_trajs")
 
-        return interpolated_points
+        return interpolated_points,vel,acc
 
 
 
