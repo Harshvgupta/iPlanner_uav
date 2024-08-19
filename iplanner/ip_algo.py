@@ -53,6 +53,6 @@ class IPlannerAlgo:
             keypoints = torch.cat((torch.zeros(batch_size, 1, dims, device=keypoints.device, requires_grad=False), keypoints), axis=1)
             keypoints[..., 0] += self.sensor_offset_x
             keypoints[..., 1] += self.sensor_offset_y
-        traj = self.traj_generate.TrajGeneratorFromPFreeRot(keypoints , step=0.1)
+        traj,vel,acc = self.traj_generate.TrajGeneratorFromPFreeRot(keypoints , step=0.1)
         
-        return keypoints, traj, fear, img
+        return keypoints, traj,vel,acc, fear, img
