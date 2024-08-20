@@ -20,6 +20,8 @@ import numpy as np
 from sensor_msgs.msg import Image, Joy
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped, PointStamped
+from trajectory_msgs.msg import MultiDOFJointTrajectory, MultiDOFJointTrajectoryPoint
+from geometry_msgs.msg import Transform, Twist
 import ros_numpy
 
 rospack = rospkg.RosPack()
@@ -69,8 +71,10 @@ class iPlannerNode:
         self.timer_pub = rospy.Publisher(timer_topic, Float32, queue_size=10)
         self.status_pub = rospy.Publisher(status_topic, Int16, queue_size=10)
 
-        self.path_pub  = rospy.Publisher(self.path_topic, Path, queue_size=10)
-        self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", Path, queue_size=10)
+        # self.path_pub  = rospy.Publisher(self.path_topic, Path, queue_size=10)
+        # self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", Path, queue_size=10)
+        self.path_pub = rospy.Publisher(self.path_topic, MultiDOFJointTrajectory, queue_size=10)
+        self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", MultiDOFJointTrajectory, queue_size=10)
 
         rospy.loginfo("iPlanner Ready.")
         
@@ -159,32 +163,70 @@ class iPlannerNode:
     #     self.fear_path_pub.publish(fear_path)
     #     self.path_pub.publish(path)
     #     return
+    # def pubPath(self, waypoints, velocities, accelerations, is_goal_init=True):
+    #     path = Path()
+    #     fear_path = Path()
+    #     if is_goal_init:
+    #         for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
+    #             pose_vel_acc = PoseVelAcc()
+    #             pose_vel_acc.pose.position.x = p[0]
+    #             pose_vel_acc.pose.position.y = p[1]
+    #             pose_vel_acc.pose.position.z = p[2]
+    #             pose_vel_acc.velocity.x = v[0]
+    #             pose_vel_acc.velocity.y = v[1]
+    #             pose_vel_acc.velocity.z = v[2]
+    #             pose_vel_acc.acceleration.x = a[0]
+    #             pose_vel_acc.acceleration.y = a[1]
+    #             pose_vel_acc.acceleration.z = a[2]
+    #             path.poses.append(pose_vel_acc)
+    #     # add header
+    #     path.header.frame_id = fear_path.header.frame_id = self.frame_id
+    #     path.header.stamp = fear_path.header.stamp = self.image_time
+    #     # publish fear path
+    #     if self.is_fear_reaction:
+    #         fear_path.poses = path.poses.copy()
+    #         path.poses = path.poses[:1]
+    #     # publish path
+    #     self.fear_path_pub.publish(fear_path)
+    #     self.path_pub.publish(path)
+    #     return
     def pubPath(self, waypoints, velocities, accelerations, is_goal_init=True):
-        path = Path()
-        fear_path = Path()
+        trajectory = MultiDOFJointTrajectory()
+        fear_trajectory = MultiDOFJointTrajectory()
+        
         if is_goal_init:
             for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
-                pose_vel_acc = PoseVelAcc()
-                pose_vel_acc.pose.position.x = p[0]
-                pose_vel_acc.pose.position.y = p[1]
-                pose_vel_acc.pose.position.z = p[2]
-                pose_vel_acc.velocity.x = v[0]
-                pose_vel_acc.velocity.y = v[1]
-                pose_vel_acc.velocity.z = v[2]
-                pose_vel_acc.acceleration.x = a[0]
-                pose_vel_acc.acceleration.y = a[1]
-                pose_vel_acc.acceleration.z = a[2]
-                path.poses.append(pose_vel_acc)
+                point = MultiDOFJointTrajectoryPoint()
+                
+                transform = Transform()
+                transform.translation.x = p[0]
+                transform.translation.y = p[1]
+                transform.translation.z = p[2]
+                
+                velocity = Twist()
+                velocity.linear.x, velocity.linear.y, velocity.linear.z = v[0], v[1], v[2]
+                
+                acceleration = Twist()
+                acceleration.linear.x, acceleration.linear.y, acceleration.linear.z = a[0], a[1], a[2]
+                
+                point.transforms.append(transform)
+                point.velocities.append(velocity)
+                point.accelerations.append(acceleration)
+                
+                trajectory.points.append(point)
+        
         # add header
-        path.header.frame_id = fear_path.header.frame_id = self.frame_id
-        path.header.stamp = fear_path.header.stamp = self.image_time
-        # publish fear path
+        trajectory.header.frame_id = fear_trajectory.header.frame_id = self.frame_id
+        trajectory.header.stamp = fear_trajectory.header.stamp = self.image_time
+        
+        # publish fear trajectory
         if self.is_fear_reaction:
-            fear_path.poses = path.poses.copy()
-            path.poses = path.poses[:1]
-        # publish path
-        self.fear_path_pub.publish(fear_path)
-        self.path_pub.publish(path)
+            fear_trajectory.points = trajectory.points.copy()
+            trajectory.points = trajectory.points[:1]
+        
+        # publish trajectory
+        self.fear_path_pub.publish(fear_trajectory)
+        self.path_pub.publish(trajectory)
         return
 
     def fearPathDetection(self, fear, is_forward):
