@@ -8,14 +8,14 @@ model_save:             /models/plannernet.pt
 crop_size:              [360, 640]
 uint_type:              False
 # images and gaol waypoint topics
-depth_topic:            /rgbd_camera/depth/image
+depth_topic:            /camera/depth/image_raw
 goal_topic:             /way_point
 path_topic:             /path
 image_topic:            /iplanner_image
 camera_tilt:            0.0
 depth_max:              10.0
 # frame ids
-robot_id:               vehicle
+robot_id:               /uav1/base_link
 world_id:               map
 # fear reaction
 is_fear_act:            True

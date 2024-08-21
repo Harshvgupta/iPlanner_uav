@@ -451,10 +451,10 @@ class MinimumSnapTrajectoryPlanner:
         polynomial_order = polynomial_coefficients.shape[1] - 1
         powers = torch.arange(polynomial_order + 1, device=device).unsqueeze(0).unsqueeze(0)
         time_powers = times.unsqueeze(-1).pow(powers)
-        print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
-        print(f"times shape: {times.shape}")
-        print(f"derivative_order: {derivative_order}")
-        print(f"polynomial_order: {polynomial_order}")
+        # print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
+        # print(f"times shape: {times.shape}")
+        # print(f"derivative_order: {derivative_order}")
+        # print(f"polynomial_order: {polynomial_order}")
         
         if derivative_order <= 0:
             values = (polynomial_coefficients.unsqueeze(1) * time_powers).sum(dim=-1)
@@ -487,13 +487,13 @@ class MinimumSnapTrajectoryPlanner:
             adjusted_coeffs = polynomial_coefficients[:, derivative_order:]
             adjusted_time_powers = time_powers[:, :, :-derivative_order]
             
-            print(f"derivative_factors shape: {derivative_factors.shape}")
-            print(f"adjusted_coeffs shape: {adjusted_coeffs.shape}")
-            print(f"adjusted_time_powers shape: {adjusted_time_powers.shape}")
+            # print(f"derivative_factors shape: {derivative_factors.shape}")
+            # print(f"adjusted_coeffs shape: {adjusted_coeffs.shape}")
+            # print(f"adjusted_time_powers shape: {adjusted_time_powers.shape}")
             
             values = (adjusted_coeffs.unsqueeze(1) * derivative_factors[derivative_order:] * adjusted_time_powers).sum(dim=-1)
         
-        print(f"values shape: {values.shape}")
+        # print(f"values shape: {values.shape}")
     # return values
        
         
@@ -502,11 +502,11 @@ class MinimumSnapTrajectoryPlanner:
     def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
         device = times.device
         num_segments = polynomial_coefficients.shape[2]
-        print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
-        print(f"time_stamps shape: {time_stamps.shape}")
-        print(f"times shape: {times.shape}")
-        print(f"derivative_order: {derivative_order}")
-        print(f"num_segments: {num_segments}")
+        # print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
+        # print(f"time_stamps shape: {time_stamps.shape}")
+        # print(f"times shape: {times.shape}")
+        # print(f"derivative_order: {derivative_order}")
+        # print(f"num_segments: {num_segments}")
         
         # Create a mask for each segment
         segment_masks = (times.unsqueeze(-1) >= time_stamps[:, :-1].unsqueeze(1)) & (times.unsqueeze(-1) < time_stamps[:, 1:].unsqueeze(1))
@@ -524,11 +524,11 @@ class MinimumSnapTrajectoryPlanner:
             all_values.append(segment_values)
         all_values = torch.stack(all_values, dim=-1)
         
-        print(f"all_values shape: {all_values.shape}")
-        print(f"segment_masks shape: {segment_masks.shape}")
+        # print(f"all_values shape: {all_values.shape}")
+        # print(f"segment_masks shape: {segment_masks.shape}")
 
-        print(f"all_values shape: {all_values.shape}")
-        print(f"segment_masks shape: {segment_masks.shape}")
+        # print(f"all_values shape: {all_values.shape}")
+        # print(f"segment_masks shape: {segment_masks.shape}")
         
         # Use the masks to select the correct values
         values = (all_values * segment_masks.float()).sum(dim=-1)

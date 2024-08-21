@@ -1,7 +1,7 @@
 <launch>
     <arg name="config" default="vehicle_sim"/>
     <arg name="rosbag" default="false"/>
-    <arg name="use_path_follow" default="true"/>
+    <arg name="use_path_follow" default="false"/>
 
     <group if="$(arg use_path_follow)">
         <include file="$(find iplanner_path_follow)/launch/path_follower.launch" />
