@@ -75,6 +75,7 @@ class iPlannerNode:
         # self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", Path, queue_size=10)
         self.path_pub = rospy.Publisher(self.path_topic, MultiDOFJointTrajectory, queue_size=10)
         self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", MultiDOFJointTrajectory, queue_size=10)
+        self.path_vis_pub = rospy.Publisher(self.path_vis_topic, Path, queue_size=10)
 
         rospy.loginfo("iPlanner Ready.")
         
@@ -85,6 +86,7 @@ class iPlannerNode:
         self.image_topic = args.depth_topic
         self.goal_topic  = args.goal_topic
         self.path_topic  = args.path_topic
+        self.path_vis_topic = args.path_topic + "_vis"
         self.frame_id    = args.robot_id
         self.world_id    = args.world_id
         self.uint_type   = args.uint_type
@@ -193,7 +195,7 @@ class iPlannerNode:
     def pubPath(self, waypoints, velocities, accelerations, is_goal_init=True):
         trajectory = MultiDOFJointTrajectory()
         fear_trajectory = MultiDOFJointTrajectory()
-        
+        path_vis = Path()  # add path_vis to help visualize the planned path in rviz
         if is_goal_init:
             for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
                 point = MultiDOFJointTrajectoryPoint()
@@ -202,6 +204,12 @@ class iPlannerNode:
                 transform.translation.x = p[0]
                 transform.translation.y = p[1]
                 transform.translation.z = p[2]
+
+                pose = PoseStamped()
+                pose.pose.position.x = p[0]
+                pose.pose.position.y = p[1]
+                pose.pose.position.z = p[2]
+                path_vis.poses.append(pose)
                 
                 velocity = Twist()
                 velocity.linear.x, velocity.linear.y, velocity.linear.z = v[0], v[1], v[2]
@@ -219,6 +227,9 @@ class iPlannerNode:
         trajectory.header.frame_id = fear_trajectory.header.frame_id = self.frame_id
         trajectory.header.stamp = fear_trajectory.header.stamp = self.image_time
         
+        path_vis.header.frame_id = self.frame_id
+        path_vis.header.stamp = self.image_time
+        
         # publish fear trajectory
         if self.is_fear_reaction:
             fear_trajectory.points = trajectory.points.copy()
@@ -227,6 +238,9 @@ class iPlannerNode:
         # publish trajectory
         self.fear_path_pub.publish(fear_trajectory)
         self.path_pub.publish(trajectory)
+
+        # publish path_vis
+        self.path_vis_pub.publish(path_vis)
         return
 
     def fearPathDetection(self, fear, is_forward):

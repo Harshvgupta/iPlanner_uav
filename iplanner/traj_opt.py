@@ -186,7 +186,7 @@ class TrajOpt:
         points_preds = torch.cat((torch.zeros(batch_size, 1, dims, device=preds.device, requires_grad=preds.requires_grad), preds), axis=1)
         # points_preds.register_hook(lambda grad: print("points_preds grad:", grad))
         num_p = num_p + 1
-        total_time = 80.0
+        total_time = 5.0
 
         all_polys_x, all_polys_y, all_polys_z, all_optimized_times = [], [], [], []
         for i in range(batch_size):
@@ -202,7 +202,7 @@ class TrajOpt:
         all_polys_z = torch.stack(all_polys_z)
         all_optimized_times = torch.stack(all_optimized_times)
 
-        num_points = 51
+        num_points = 500
         interpolated_points,vel,acc = self.interpolate_trajectory(all_polys_x, all_polys_y, all_polys_z, all_optimized_times, num_points)
 
         if torch.isnan(interpolated_points).any():

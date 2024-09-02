@@ -11,4 +11,8 @@
         <rosparam command="load" file="$(find iplanner_node)/config/$(arg config).yaml"/>
     </node>
     <node type="rviz" name="iplanner_rviz" pkg="rviz" args="-d $(find iplanner_node)/rviz/default.rviz" respawn="false"/>
+
+    <!-- add static transform publisher to publish the transform between the vehicle and the camera, in order to visualize depth points in rviz -->
+    <node pkg="tf" type="static_transform_publisher" name="vehicleTransPublisher" args="0.06 0 0 -1.57 0 -1.57 /uav1/base_link /camera_link 1000"/>
+
 </launch>
