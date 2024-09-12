@@ -19,9 +19,10 @@ from std_msgs.msg import Float32, Int16
 import numpy as np
 from sensor_msgs.msg import Image, Joy
 from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped, PointStamped
+from geometry_msgs.msg import PoseStamped, PointStamped, TwistStamped
 from trajectory_msgs.msg import MultiDOFJointTrajectory, MultiDOFJointTrajectoryPoint
-from geometry_msgs.msg import Transform, Twist
+from geometry_msgs.msg import Transform, Twist, Pose
+from std_msgs.msg import Float32MultiArray
 import ros_numpy
 
 rospack = rospkg.RosPack()
@@ -73,9 +74,12 @@ class iPlannerNode:
 
         # self.path_pub  = rospy.Publisher(self.path_topic, Path, queue_size=10)
         # self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", Path, queue_size=10)
-        self.path_pub = rospy.Publisher(self.path_topic, MultiDOFJointTrajectory, queue_size=10)
-        self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", MultiDOFJointTrajectory, queue_size=10)
-        self.path_vis_pub = rospy.Publisher(self.path_vis_topic, Path, queue_size=10)
+        self.path_pub = rospy.Publisher(self.path_topic, MultiDOFJointTrajectory, queue_size=1)
+        self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", MultiDOFJointTrajectory, queue_size=1)
+        self.path_vis_pub = rospy.Publisher(self.path_vis_topic, Path, queue_size=1)
+        
+        # timestamp for each waypoint
+        self.wp_time = None
 
         rospy.loginfo("iPlanner Ready.")
         
@@ -87,6 +91,7 @@ class iPlannerNode:
         self.goal_topic  = args.goal_topic
         self.path_topic  = args.path_topic
         self.path_vis_topic = args.path_topic + "_vis"
+        self.path_time_topic = args.path_topic + "_time"
         self.frame_id    = args.robot_id
         self.world_id    = args.world_id
         self.uint_type   = args.uint_type
@@ -114,7 +119,7 @@ class iPlannerNode:
                 # self.timer_data.data = (end - start) * 1000
                 # self.timer_pub.publish(self.timer_data)
 
-                self.preds, self.waypoints, self.velocities, self.accelerations, fear_output, _ = self.iplanner_algo.plan(cur_image, self.goal_rb)
+                self.preds, self.waypoints, self.velocities, self.accelerations, self.wp_time, fear_output, _ = self.iplanner_algo.plan(cur_image, self.goal_rb)
                 end = time.time()
                 self.timer_data.data = (end - start) * 1000
                 self.timer_pub.publish(self.timer_data)
@@ -198,6 +203,9 @@ class iPlannerNode:
         path_vis = Path()  # add path_vis to help visualize the planned path in rviz
         if is_goal_init:
             for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
+                p = p.detach().cpu().numpy() if p.is_cuda else p.detach().numpy()
+                v = v.detach().cpu().numpy() if v.is_cuda else v.detach().numpy()
+                a = a.detach().cpu().numpy() if a.is_cuda else a.detach().numpy()
                 point = MultiDOFJointTrajectoryPoint()
                 
                 transform = Transform()
@@ -230,6 +238,92 @@ class iPlannerNode:
         path_vis.header.frame_id = self.frame_id
         path_vis.header.stamp = self.image_time
         
+        # Transform path_vis to /map
+        try:
+            for i, pose_stamped in enumerate(path_vis.poses):
+                # Transform each pose in path_vis to /map
+                if pose_stamped.header.frame_id == "":
+                    pose_stamped.header.frame_id = self.frame_id  # Ensure the source frame is set
+
+                # Wait for the transform to be available
+                self.tf_listener.waitForTransform("/map", pose_stamped.header.frame_id, rospy.Time(0), rospy.Duration(1.0))
+
+                # Transform pose to /map
+                (trans, rot) = self.tf_listener.lookupTransform("/map", self.frame_id, rospy.Time(0))
+                transform_matrix = self.tf_listener.fromTranslationRotation(trans, rot)
+                position_robot_frame = np.array([pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z, 1.0])
+                transformed_pose = np.dot(transform_matrix, position_robot_frame)
+                
+                # transformed_pose = self.tf_listener.transformPose("/map", pose_stamped)
+                new_pose = PoseStamped()
+                new_pose.pose.position.x = transformed_pose[0]
+                new_pose.pose.position.y = transformed_pose[1]
+                new_pose.pose.position.z = transformed_pose[2]
+                path_vis.poses[i] = new_pose
+
+            # Update path_vis header to the new frame
+            path_vis.header.frame_id = "/map"
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
+            rospy.logwarn("Transform to /map failed: %s", e)
+
+        # Transform path to /map
+        try:
+            for i, point in enumerate(trajectory.points): 
+                # pose to PoseStamped, vel to TwistStamped, acc to TwistStamped  
+                pose = PoseStamped()
+                pose.pose.position.x = point.transforms[0].translation.x
+                pose.pose.position.y = point.transforms[0].translation.y
+                pose.pose.position.z = point.transforms[0].translation.z
+                pose.header.frame_id = self.frame_id 
+
+                velocity = TwistStamped()
+                velocity.twist.linear.x = point.velocities[0].linear.x
+                velocity.twist.linear.y = point.velocities[0].linear.y
+                velocity.twist.linear.z = point.velocities[0].linear.z
+                velocity.header.frame_id = self.frame_id
+
+                acceleration = TwistStamped()
+                acceleration.twist.linear.x = point.accelerations[0].linear.x
+                acceleration.twist.linear.y = point.accelerations[0].linear.y
+                acceleration.twist.linear.z = point.accelerations[0].linear.z
+                acceleration.header.frame_id = self.frame_id    
+
+                # Wait for the transform to be available    
+                self.tf_listener.waitForTransform("/map", self.frame_id, rospy.Time(0), rospy.Duration(1.0))
+                (trans, rot) = self.tf_listener.lookupTransform("/map", self.frame_id, rospy.Time(0))
+                transform_matrix = self.tf_listener.fromTranslationRotation(trans, rot)
+                # print(f'translation: {transform_matrix[0][3]}, {transform_matrix[1][3]}, {transform_matrix[2][3]}, {transform_matrix[3][3]}')   
+                position_robot_frame = np.array([pose.pose.position.x, pose.pose.position.y, pose.pose.position.z, 1.0])
+                transformed_position = np.dot(transform_matrix, position_robot_frame)
+                trajectory.points[i].transforms[0].translation.x = transformed_position[0]
+                trajectory.points[i].transforms[0].translation.y = transformed_position[1]
+                trajectory.points[i].transforms[0].translation.z = transformed_position[2]
+                # print(f'transformed position: {transformed_position[0]}, {transformed_position[1]}, {transformed_position[2]}')
+
+                # Transform velocity to /map
+                # self.tf_listener.waitForTransform("/map", self.frame_id, rospy.Time(0), rospy.Duration(1.0))
+                # (trans, rot) = self.tf_listener.lookupTransform("/map", self.frame_id, rospy.Time(0))
+                # transform_matrix = self.tf_listener.fromTranslationRotation(trans, rot)
+                linear_velocity = np.array([velocity.twist.linear.x, velocity.twist.linear.y, velocity.twist.linear.z, 0.0])
+                transformed_velocity = np.dot(transform_matrix[0:3, 0:3], linear_velocity[0:3])
+                trajectory.points[i].velocities[0].linear.x = transformed_velocity[0]
+                trajectory.points[i].velocities[0].linear.y = transformed_velocity[1]   
+                trajectory.points[i].velocities[0].linear.z = transformed_velocity[2]
+                
+                # Transform acceleration to /map
+                acceleration_vector = np.array([acceleration.twist.linear.x, acceleration.twist.linear.y, acceleration.twist.linear.z, 0.0])
+                transformed_acceleration = np.dot(transform_matrix[0:3, 0:3], acceleration_vector[0:3])
+                trajectory.points[i].accelerations[0].linear.x = transformed_acceleration[0]
+                trajectory.points[i].accelerations[0].linear.y = transformed_acceleration[1]    
+                trajectory.points[i].accelerations[0].linear.z = transformed_acceleration[2]    
+            # Update path header to the new frame
+            trajectory.header.frame_id = "/map"
+
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
+            rospy.logwarn("Transform to /map failed: %s", e)
+
+
+
         # publish fear trajectory
         if self.is_fear_reaction:
             fear_trajectory.points = trajectory.points.copy()
@@ -241,6 +335,14 @@ class iPlannerNode:
 
         # publish path_vis
         self.path_vis_pub.publish(path_vis)
+
+        # # publish waypoint time
+
+        # # tensor to list
+        # waypoint_time = waypoint_time.squeeze(0).detach().cpu().numpy().tolist()
+        # waypoint_time_data = Float32MultiArray()
+        # waypoint_time_data.data = waypoint_time
+        # self.path_time_pub.publish(waypoint_time_data)
         return
 
     def fearPathDetection(self, fear, is_forward):
