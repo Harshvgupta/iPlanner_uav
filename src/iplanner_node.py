@@ -145,68 +145,25 @@ class iPlannerNode:
                             self.planner_status.data = -1
                             self.status_pub.publish(self.planner_status)
                 # self.pubPath(self.waypoints, self.is_goal_init)
-                self.pubPath(self.waypoints, self.velocities, self.accelerations, self.is_goal_init)
+                self.pubPath(self.waypoints, self.velocities, self.accelerations, self.wp_time, self.is_goal_init)
             r.sleep()
         rospy.spin()
 
-    # def pubPath(self, waypoints, is_goal_init=True):
-    #     path = Path()
-    #     fear_path = Path()
-    #     if is_goal_init:
-    #         for p in waypoints.squeeze(0):
-    #             pose = PoseStamped()
-    #             pose.pose.position.x = p[0]
-    #             pose.pose.position.y = p[1]
-    #             pose.pose.position.z = p[2]
-    #             path.poses.append(pose)
-    #     # add header
-    #     path.header.frame_id = fear_path.header.frame_id = self.frame_id
-    #     path.header.stamp = fear_path.header.stamp = self.image_time
-    #     # publish fear path
-    #     if self.is_fear_reaction:
-    #         fear_path.poses = path.poses.copy()
-    #         path.poses = path.poses[:1]
-    #     # publish path
-    #     self.fear_path_pub.publish(fear_path)
-    #     self.path_pub.publish(path)
-    #     return
-    # def pubPath(self, waypoints, velocities, accelerations, is_goal_init=True):
-    #     path = Path()
-    #     fear_path = Path()
-    #     if is_goal_init:
-    #         for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
-    #             pose_vel_acc = PoseVelAcc()
-    #             pose_vel_acc.pose.position.x = p[0]
-    #             pose_vel_acc.pose.position.y = p[1]
-    #             pose_vel_acc.pose.position.z = p[2]
-    #             pose_vel_acc.velocity.x = v[0]
-    #             pose_vel_acc.velocity.y = v[1]
-    #             pose_vel_acc.velocity.z = v[2]
-    #             pose_vel_acc.acceleration.x = a[0]
-    #             pose_vel_acc.acceleration.y = a[1]
-    #             pose_vel_acc.acceleration.z = a[2]
-    #             path.poses.append(pose_vel_acc)
-    #     # add header
-    #     path.header.frame_id = fear_path.header.frame_id = self.frame_id
-    #     path.header.stamp = fear_path.header.stamp = self.image_time
-    #     # publish fear path
-    #     if self.is_fear_reaction:
-    #         fear_path.poses = path.poses.copy()
-    #         path.poses = path.poses[:1]
-    #     # publish path
-    #     self.fear_path_pub.publish(fear_path)
-    #     self.path_pub.publish(path)
-    #     return
-    def pubPath(self, waypoints, velocities, accelerations, is_goal_init=True):
+    def pubPath(self, waypoints, velocities, accelerations, wp_time, is_goal_init=True):
         trajectory = MultiDOFJointTrajectory()
         fear_trajectory = MultiDOFJointTrajectory()
         path_vis = Path()  # add path_vis to help visualize the planned path in rviz
         if is_goal_init:
-            for p, v, a in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0)):
+            for p, v, a, t in zip(waypoints.squeeze(0), velocities.squeeze(0), accelerations.squeeze(0), wp_time.squeeze(0)):
                 p = p.detach().cpu().numpy() if p.is_cuda else p.detach().numpy()
                 v = v.detach().cpu().numpy() if v.is_cuda else v.detach().numpy()
                 a = a.detach().cpu().numpy() if a.is_cuda else a.detach().numpy()
+                t = t.detach().cpu().numpy() if t.is_cuda else t.detach().numpy()
                 point = MultiDOFJointTrajectoryPoint()
+                point.time_from_start = rospy.Duration.from_sec(t)
+
+                rospy.logdebug(point.time_from_start)
+                rospy.logdebug(point.time_from_start.to_sec())
                 
                 transform = Transform()
                 transform.translation.x = p[0]

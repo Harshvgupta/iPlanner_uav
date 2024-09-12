@@ -121,7 +121,7 @@ class TrajOpt:
         # Assume average drone speed is v = 1 m/s
         # initial guess of the total time t = s/v
         s = torch.norm(points_preds[0, -1, :])  # In robot frame, the last point is the target, and robot position is 0
-        v = 1.5
+        v = 1.0
         total_time = s / v
         self.total_time = total_time
         self.min_snap_planner = MinimumSnapTrajectoryPlanner(self.total_time, self.poly_order, self.start_vel, self.start_acc, self.end_vel, self.end_acc)
