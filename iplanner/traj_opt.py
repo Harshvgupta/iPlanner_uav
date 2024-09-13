@@ -3,7 +3,6 @@ from snap1 import UAVTrajectoryPlanner
 from snap1 import TrajectoryUtils
 from closedform import MinimumSnapTrajectoryPlanner
 import time
-import torch
 from torch.cuda import Event
 
 import rospy

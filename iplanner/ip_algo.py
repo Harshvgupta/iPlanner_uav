@@ -54,5 +54,14 @@ class IPlannerAlgo:
             keypoints[..., 0] += self.sensor_offset_x
             keypoints[..., 1] += self.sensor_offset_y
         traj,vel,acc,times = self.traj_generate.TrajGeneratorFromPFreeRot(keypoints , step=0.1)
-        
+        # visualize acceleration
+        # vel_list = vel.cpu().detach().numpy()[0]
+        # print('vel_list: ', vel_list)
+        # import matplotlib.pyplot as plt
+        # plt.plot(vel_list[:,0], label='x')
+        # plt.plot(vel_list[:,1], label='y')
+        # plt.plot(vel_list[:,2], label='z')
+        # plt.legend()
+        # plt.show()
+
         return keypoints, traj,vel,acc,times, fear, img

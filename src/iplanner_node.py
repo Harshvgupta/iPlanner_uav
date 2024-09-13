@@ -164,7 +164,7 @@ class iPlannerNode:
 
                 rospy.logdebug(point.time_from_start)
                 rospy.logdebug(point.time_from_start.to_sec())
-                
+
                 transform = Transform()
                 transform.translation.x = p[0]
                 transform.translation.y = p[1]
@@ -431,5 +431,22 @@ if __name__ == '__main__':
 
 
     node = iPlannerNode(args)
+
+    # # test iplanner algo
+    # import numpy
+    # iplanner_algo = node.iplanner_algo
+    # keypoints = torch.tensor([[[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]], dtype=torch.float32)
+    # traj, vel, acc, times = iplanner_algo.traj_generate.TrajGeneratorFromPFreeRot(keypoints, step=0.1)
+
+    # # plot the trajectory, velocity, and acceleration
+    # import matplotlib.pyplot as plt
+    # fig, axs = plt.subplots(3, 1)
+    # axs[0].plot(traj[:, 0], traj[:, 1])
+    # axs[0].set_title('Trajectory')
+    # axs[1].plot(vel)
+    # axs[1].set_title('Velocity')
+    # axs[2].plot(acc)
+    # axs[2].set_title('Acceleration')
+    # plt.show()
 
     node.spin()
