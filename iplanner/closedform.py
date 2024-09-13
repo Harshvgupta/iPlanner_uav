@@ -507,6 +507,27 @@ class MinimumSnapTrajectoryPlanner:
                 values += polynomial_coefficients[:, i].unsqueeze(1) * derivative_factor * times.pow(i - derivative_order)
 
         return values
+   def evaluate_polynomial_vectorized3(self,polynomial_coefficients, time, derivative_order):
+        """
+        Evaluate a polynomial at a given time.
+        
+        Args:
+            polynomial_coefficients (Tensor): coefficients of the polynomial
+            time (float): time at which to evaluate the polynomial
+            derivative_order (int): derivative order
+            
+        Returns:
+            float: value of the polynomial at the given time
+        """
+        value = 0
+        polynomial_order = len(polynomial_coefficients) - 1
+        if derivative_order <= 0:
+            for i in range(polynomial_order + 1):
+                value += polynomial_coefficients[i] * time ** i
+        else:
+            for i in range(derivative_order, polynomial_order + 1):
+                value += polynomial_coefficients[i] * np.prod(range(i - derivative_order + 1, i + 1)) * time ** (i - derivative_order)
+        return value
 
     # def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
     #     device = times.device
