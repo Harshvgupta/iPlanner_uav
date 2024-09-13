@@ -446,91 +446,153 @@ class MinimumSnapTrajectoryPlanner:
 
         return p
 
+    def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
+        """
+        Batch version of evaluate_polynomials_vectorized3.
+        
+        Args:
+            polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1, num_segments)
+            time_stamps (Tensor): time stamps for each segment (batch_size, num_segments + 1)
+            times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
+            derivative_order (int): derivative order
+        
+        Returns:
+            Tensor: values of the polynomials at the given times
+        """
+        batch_size = times.size(0)
+        num_times = times.size(1)
+        num_segments = polynomial_coefficients.size(2)
+        
+        values = torch.zeros((batch_size, num_times), device=times.device)
+        index = torch.zeros(batch_size, dtype=torch.long, device=times.device)  # Tracking segment indices for each batch
+        
+        for i in range(num_times):
+            time = times[:, i]
+            
+            # Determine which segment the time falls into for each batch
+            for b in range(batch_size):
+                while index[b] < num_segments - 1 and time[b] > time_stamps[b, index[b] + 1]:
+                    index[b] += 1
+            
+            # Evaluate the polynomial for the corresponding segment for each batch
+            for b in range(batch_size):
+                segment_coeffs = polynomial_coefficients[b, :, index[b]]
+                values[b, i] = self.evaluate_polynomial_vectorized3(segment_coeffs, time[b], derivative_order)
+        
+        return values
     def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
-        device = times.device
-        polynomial_order = polynomial_coefficients.shape[1] - 1
-        powers = torch.arange(polynomial_order + 1, device=device).unsqueeze(0).unsqueeze(0)
-        time_powers = times.unsqueeze(-1).pow(powers)
-        print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
-        print(f"times shape: {times.shape}")
-        print(f"derivative_order: {derivative_order}")
-        print(f"polynomial_order: {polynomial_order}")
+        """
+        Batch version of evaluate_polynomial_vectorized3.
+        
+        Args:
+            polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1)
+            times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
+            derivative_order (int): derivative order
+        
+        Returns:
+            Tensor: values of the polynomials at the given times
+        """
+        batch_size = polynomial_coefficients.size(0)
+        polynomial_order = polynomial_coefficients.size(1) - 1
+        num_times = times.size(1)
+        
+        values = torch.zeros((batch_size, num_times), device=times.device)
         
         if derivative_order <= 0:
-            values = (polynomial_coefficients.unsqueeze(1) * time_powers).sum(dim=-1)
-        # else:
-        #     derivative_factors = torch.prod(torch.arange(1, polynomial_order + 1, device=device).unsqueeze(0) - 
-        #                                     torch.arange(derivative_order, device=device).unsqueeze(1), dim=0)
-        #     derivative_factors = torch.cat([torch.zeros(derivative_order, device=device), derivative_factors])
-        #     # values = (polynomial_coefficients.unsqueeze(1) * derivative_factors * time_powers[:, :, :-derivative_order]).sum(dim=-1)
-        #     print(f"derivative_factors shape: {derivative_factors.shape}")
-        #     print(f"time_powers shape: {time_powers.shape}")
-        #     print(f"time_powers[:, :, :-derivative_order] shape: {time_powers[:, :, :-derivative_order].shape}")
-
-        #     # derivative_factors = derivative_factors[:-derivative_order]
-
-        #     # values = (polynomial_coefficients.unsqueeze(1) * derivative_factors * time_powers[:, :, :-derivative_order]).sum(dim=-1)
-        #      # Adjust both polynomial_coefficients and derivative_factors
-        #     adjusted_coeffs = polynomial_coefficients[:, derivative_order:]
-        #     adjusted_factors = derivative_factors[derivative_order:]
-            
-        #     values = (adjusted_coeffs.unsqueeze(1) * adjusted_factors * time_powers[:, :, :-derivative_order]).sum(dim=-1)
-        
-        # print(f"values shape: {values.shape}")
+            for i in range(polynomial_order + 1):
+                values += polynomial_coefficients[:, i].unsqueeze(1) * times.pow(i)
         else:
-            # Calculate derivative factors
-            derivative_factors = torch.ones(polynomial_order + 1, dtype=dtype, device=device)
-            for i in range(1, derivative_order + 1):
-                derivative_factors[i:] *= torch.arange(i, polynomial_order + 1, dtype=dtype, device=device)
-            
-            # Adjust coefficients and time powers
-            adjusted_coeffs = polynomial_coefficients[:, derivative_order:]
-            adjusted_time_powers = time_powers[:, :, :-derivative_order]
-            
-            print(f"derivative_factors shape: {derivative_factors.shape}")
-            print(f"adjusted_coeffs shape: {adjusted_coeffs.shape}")
-            print(f"adjusted_time_powers shape: {adjusted_time_powers.shape}")
-            
-            values = (adjusted_coeffs.unsqueeze(1) * derivative_factors[derivative_order:] * adjusted_time_powers).sum(dim=-1)
+            for i in range(derivative_order, polynomial_order + 1):
+                derivative_factor = torch.prod(torch.arange(i - derivative_order + 1, i + 1, device=times.device))
+                values += polynomial_coefficients[:, i].unsqueeze(1) * derivative_factor * times.pow(i - derivative_order)
+
+        return values
+
+    # def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
+    #     device = times.device
+    #     polynomial_order = polynomial_coefficients.shape[1] - 1
+    #     powers = torch.arange(polynomial_order + 1, device=device).unsqueeze(0).unsqueeze(0)
+    #     time_powers = times.unsqueeze(-1).pow(powers)
+    #     print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
+    #     print(f"times shape: {times.shape}")
+    #     print(f"derivative_order: {derivative_order}")
+    #     print(f"polynomial_order: {polynomial_order}")
         
-        print(f"values shape: {values.shape}")
-    # return values
+    #     if derivative_order <= 0:
+    #         values = (polynomial_coefficients.unsqueeze(1) * time_powers).sum(dim=-1)
+    #     # else:
+    #     #     derivative_factors = torch.prod(torch.arange(1, polynomial_order + 1, device=device).unsqueeze(0) - 
+    #     #                                     torch.arange(derivative_order, device=device).unsqueeze(1), dim=0)
+    #     #     derivative_factors = torch.cat([torch.zeros(derivative_order, device=device), derivative_factors])
+    #     #     # values = (polynomial_coefficients.unsqueeze(1) * derivative_factors * time_powers[:, :, :-derivative_order]).sum(dim=-1)
+    #     #     print(f"derivative_factors shape: {derivative_factors.shape}")
+    #     #     print(f"time_powers shape: {time_powers.shape}")
+    #     #     print(f"time_powers[:, :, :-derivative_order] shape: {time_powers[:, :, :-derivative_order].shape}")
+
+    #     #     # derivative_factors = derivative_factors[:-derivative_order]
+
+    #     #     # values = (polynomial_coefficients.unsqueeze(1) * derivative_factors * time_powers[:, :, :-derivative_order]).sum(dim=-1)
+    #     #      # Adjust both polynomial_coefficients and derivative_factors
+    #     #     adjusted_coeffs = polynomial_coefficients[:, derivative_order:]
+    #     #     adjusted_factors = derivative_factors[derivative_order:]
+            
+    #     #     values = (adjusted_coeffs.unsqueeze(1) * adjusted_factors * time_powers[:, :, :-derivative_order]).sum(dim=-1)
+        
+    #     # print(f"values shape: {values.shape}")
+    #     else:
+    #         # Calculate derivative factors
+    #         derivative_factors = torch.ones(polynomial_order + 1, dtype=dtype, device=device)
+    #         for i in range(1, derivative_order + 1):
+    #             derivative_factors[i:] *= torch.arange(i, polynomial_order + 1, dtype=dtype, device=device)
+            
+    #         # Adjust coefficients and time powers
+    #         adjusted_coeffs = polynomial_coefficients[:, derivative_order:]
+    #         adjusted_time_powers = time_powers[:, :, :-derivative_order]
+            
+    #         print(f"derivative_factors shape: {derivative_factors.shape}")
+    #         print(f"adjusted_coeffs shape: {adjusted_coeffs.shape}")
+    #         print(f"adjusted_time_powers shape: {adjusted_time_powers.shape}")
+            
+    #         values = (adjusted_coeffs.unsqueeze(1) * derivative_factors[derivative_order:] * adjusted_time_powers).sum(dim=-1)
+        
+    #     print(f"values shape: {values.shape}")
+    # # return values
        
         
-        return values
+    #     return values
 
-    def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
-        device = times.device
-        num_segments = polynomial_coefficients.shape[2]
-        print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
-        print(f"time_stamps shape: {time_stamps.shape}")
-        print(f"times shape: {times.shape}")
-        print(f"derivative_order: {derivative_order}")
-        print(f"num_segments: {num_segments}")
+    # def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
+    #     device = times.device
+    #     num_segments = polynomial_coefficients.shape[2]
+    #     print(f"polynomial_coefficients shape: {polynomial_coefficients.shape}")
+    #     print(f"time_stamps shape: {time_stamps.shape}")
+    #     print(f"times shape: {times.shape}")
+    #     print(f"derivative_order: {derivative_order}")
+    #     print(f"num_segments: {num_segments}")
         
-        # Create a mask for each segment
-        segment_masks = (times.unsqueeze(-1) >= time_stamps[:, :-1].unsqueeze(1)) & (times.unsqueeze(-1) < time_stamps[:, 1:].unsqueeze(1))
-        segment_masks[:, :, -1] |= (times >= time_stamps[:, -1].unsqueeze(1))  # Include points at or after the last time stamp in the last segment
+    #     # Create a mask for each segment
+    #     segment_masks = (times.unsqueeze(-1) >= time_stamps[:, :-1].unsqueeze(1)) & (times.unsqueeze(-1) < time_stamps[:, 1:].unsqueeze(1))
+    #     segment_masks[:, :, -1] |= (times >= time_stamps[:, -1].unsqueeze(1))  # Include points at or after the last time stamp in the last segment
         
-        # Evaluate polynomials for all segments
-        # all_values = torch.stack([self.evaluate_polynomial_vectorized(polynomial_coefficients[:, :, i], times, derivative_order) 
-                                #   for i in range(num_segments)], dim=-1)
+    #     # Evaluate polynomials for all segments
+    #     # all_values = torch.stack([self.evaluate_polynomial_vectorized(polynomial_coefficients[:, :, i], times, derivative_order) 
+    #                             #   for i in range(num_segments)], dim=-1)
 
-        # Evaluate polynomials for all segments
-        all_values = []
-        for i in range(num_segments):
-            segment_coeffs = polynomial_coefficients[:, :, i]
-            segment_values = self.evaluate_polynomial_vectorized(segment_coeffs, times, derivative_order)
-            all_values.append(segment_values)
-        all_values = torch.stack(all_values, dim=-1)
+    #     # Evaluate polynomials for all segments
+    #     all_values = []
+    #     for i in range(num_segments):
+    #         segment_coeffs = polynomial_coefficients[:, :, i]
+    #         segment_values = self.evaluate_polynomial_vectorized(segment_coeffs, times, derivative_order)
+    #         all_values.append(segment_values)
+    #     all_values = torch.stack(all_values, dim=-1)
         
-        print(f"all_values shape: {all_values.shape}")
-        print(f"segment_masks shape: {segment_masks.shape}")
+    #     print(f"all_values shape: {all_values.shape}")
+    #     print(f"segment_masks shape: {segment_masks.shape}")
 
-        print(f"all_values shape: {all_values.shape}")
-        print(f"segment_masks shape: {segment_masks.shape}")
+    #     print(f"all_values shape: {all_values.shape}")
+    #     print(f"segment_masks shape: {segment_masks.shape}")
         
-        # Use the masks to select the correct values
-        values = (all_values * segment_masks.float()).sum(dim=-1)
+    #     # Use the masks to select the correct values
+    #     values = (all_values * segment_masks.float()).sum(dim=-1)
         
-        return values
+    #     return values
