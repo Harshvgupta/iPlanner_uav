@@ -445,89 +445,185 @@ class MinimumSnapTrajectoryPlanner:
             print("NaNs detected in final polynomial coefficients:", p)
 
         return p
-
-    def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
+      def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
         """
-        Batch version of evaluate_polynomials_vectorized3.
+        Vectorized evaluation of polynomials and their derivatives.
+
+        Args:
+            polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1)
+            times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
+            derivative_order (int): derivative order
+
+        Returns:
+            Tensor: values of the polynomials at the given times
+        """
+        batch_size, num_times = times.shape
+        polynomial_order = polynomial_coefficients.size(1) - 1
+
+        i_values = torch.arange(0, polynomial_order + 1, device=times.device)
+
+        if derivative_order <= 0:
+            # Compute times raised to the power of exponents
+            times_powers = times.unsqueeze(2).pow(i_values)
+            # Multiply coefficients with corresponding time powers and sum over exponents
+            values = torch.sum(times_powers * polynomial_coefficients.unsqueeze(1), dim=2)
+        else:
+            # Determine valid exponents where derivative can be computed
+            valid_i = i_values >= derivative_order
+            # Compute derivative factors using logarithms to prevent overflow
+            derivative_factors = torch.zeros(polynomial_order + 1, device=times.device)
+            derivative_factors[valid_i] = torch.exp(
+                torch.lgamma(i_values[valid_i] + 1) - torch.lgamma(i_values[valid_i] - derivative_order + 1)
+            )
+            # Adjust coefficients for derivative
+            adjusted_coefficients = torch.zeros_like(polynomial_coefficients)
+            adjusted_coefficients[:, valid_i] = polynomial_coefficients[:, valid_i] * derivative_factors[valid_i]
+            # Compute exponents after differentiation
+            exponents = i_values - derivative_order
+            # Compute time powers with adjusted exponents
+            times_powers = times.unsqueeze(2).pow(exponents)
+            # Zero out invalid positions where exponents are negative
+            times_powers[:, :, ~valid_i] = 0
+            # Compute the final values
+            values = torch.sum(times_powers * adjusted_coefficients.unsqueeze(1), dim=2)
+
+        return values
         
+      def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
+        """
+        Batch evaluation of polynomials over time segments.
+
         Args:
             polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1, num_segments)
             time_stamps (Tensor): time stamps for each segment (batch_size, num_segments + 1)
             times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
             derivative_order (int): derivative order
-        
+
         Returns:
             Tensor: values of the polynomials at the given times
         """
-        batch_size = times.size(0)
-        num_times = times.size(1)
+        batch_size, num_times = times.shape
         num_segments = polynomial_coefficients.size(2)
-        
-        values = torch.zeros((batch_size, num_times), device=times.device)
-        index = torch.zeros(batch_size, dtype=torch.long, device=times.device)  # Tracking segment indices for each batch
-        
-        for i in range(num_times):
-            time = times[:, i]
-            
-            # Determine which segment the time falls into for each batch
-            for b in range(batch_size):
-                while index[b] < num_segments - 1 and time[b] > time_stamps[b, index[b] + 1]:
-                    index[b] += 1
-            
-            # Evaluate the polynomial for the corresponding segment for each batch
-            for b in range(batch_size):
-                segment_coeffs = polynomial_coefficients[b, :, index[b]]
-                values[b, i] = self.evaluate_polynomial_vectorized3(segment_coeffs, time[b], derivative_order)
-        
-        return values
-    def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
-        """
-        Batch version of evaluate_polynomial_vectorized3.
-        
-        Args:
-            polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1)
-            times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
-            derivative_order (int): derivative order
-        
-        Returns:
-            Tensor: values of the polynomials at the given times
-        """
-        batch_size = polynomial_coefficients.size(0)
         polynomial_order = polynomial_coefficients.size(1) - 1
-        num_times = times.size(1)
-        
-        values = torch.zeros((batch_size, num_times), device=times.device)
-        
+
+        # Compute indices for each time
+        indices = torch.zeros((batch_size, num_times), dtype=torch.long, device=times.device)
+        for b in range(batch_size):
+            # Use searchsorted to find the segment index for each time
+            indices[b] = torch.searchsorted(time_stamps[b], times[b], right=True) - 1
+            # Clamp indices to valid range
+            indices[b] = indices[b].clamp(0, num_segments - 1)
+
+        # Rearrange polynomial_coefficients to (batch_size, num_segments, poly_order+1)
+        polynomial_coefficients = polynomial_coefficients.permute(0, 2, 1)
+        # Prepare batch indices
+        batch_indices = torch.arange(batch_size, device=times.device).unsqueeze(1).expand(batch_size, num_times)
+        # Extract coefficients for the appropriate segments
+        coeffs = polynomial_coefficients[batch_indices, indices, :]  # Shape: (batch_size, num_times, poly_order+1)
+
+        i_values = torch.arange(0, polynomial_order + 1, device=times.device)
+
         if derivative_order <= 0:
-            for i in range(polynomial_order + 1):
-                values += polynomial_coefficients[:, i].unsqueeze(1) * times.pow(i)
+            times_powers = times.unsqueeze(2).pow(i_values)
+            values = torch.sum(times_powers * coeffs, dim=2)
         else:
-            for i in range(derivative_order, polynomial_order + 1):
-                derivative_factor = torch.prod(torch.arange(i - derivative_order + 1, i + 1, device=times.device))
-                values += polynomial_coefficients[:, i].unsqueeze(1) * derivative_factor * times.pow(i - derivative_order)
+            valid_i = i_values >= derivative_order
+            derivative_factors = torch.zeros(polynomial_order + 1, device=times.device)
+            derivative_factors[valid_i] = torch.exp(
+                torch.lgamma(i_values[valid_i] + 1) - torch.lgamma(i_values[valid_i] - derivative_order + 1)
+            )
+            adjusted_coeffs = torch.zeros_like(coeffs)
+            adjusted_coeffs[:, :, valid_i] = coeffs[:, :, valid_i] * derivative_factors[valid_i]
+            exponents = i_values - derivative_order
+            times_powers = times.unsqueeze(2).pow(exponents)
+            times_powers[:, :, ~valid_i] = 0
+            values = torch.sum(times_powers * adjusted_coeffs, dim=2)
 
         return values
-   def evaluate_polynomial_vectorized3(self,polynomial_coefficients, time, derivative_order):
-        """
-        Evaluate a polynomial at a given time.
+
+   #  def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
+   #      """
+   #      Batch version of evaluate_polynomials_vectorized3.
         
-        Args:
-            polynomial_coefficients (Tensor): coefficients of the polynomial
-            time (float): time at which to evaluate the polynomial
-            derivative_order (int): derivative order
+   #      Args:
+   #          polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1, num_segments)
+   #          time_stamps (Tensor): time stamps for each segment (batch_size, num_segments + 1)
+   #          times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
+   #          derivative_order (int): derivative order
+        
+   #      Returns:
+   #          Tensor: values of the polynomials at the given times
+   #      """
+   #      batch_size = times.size(0)
+   #      num_times = times.size(1)
+   #      num_segments = polynomial_coefficients.size(2)
+        
+   #      values = torch.zeros((batch_size, num_times), device=times.device)
+   #      index = torch.zeros(batch_size, dtype=torch.long, device=times.device)  # Tracking segment indices for each batch
+        
+   #      for i in range(num_times):
+   #          time = times[:, i]
             
-        Returns:
-            float: value of the polynomial at the given time
-        """
-        value = 0
-        polynomial_order = len(polynomial_coefficients) - 1
-        if derivative_order <= 0:
-            for i in range(polynomial_order + 1):
-                value += polynomial_coefficients[i] * time ** i
-        else:
-            for i in range(derivative_order, polynomial_order + 1):
-                value += polynomial_coefficients[i] * np.prod(range(i - derivative_order + 1, i + 1)) * time ** (i - derivative_order)
-        return value
+   #          # Determine which segment the time falls into for each batch
+   #          for b in range(batch_size):
+   #              while index[b] < num_segments - 1 and time[b] > time_stamps[b, index[b] + 1]:
+   #                  index[b] += 1
+            
+   #          # Evaluate the polynomial for the corresponding segment for each batch
+   #          for b in range(batch_size):
+   #              segment_coeffs = polynomial_coefficients[b, :, index[b]]
+   #              values[b, i] = self.evaluate_polynomial_vectorized3(segment_coeffs, time[b], derivative_order)
+        
+   #      return values
+   #  def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
+   #      """
+   #      Batch version of evaluate_polynomial_vectorized3.
+        
+   #      Args:
+   #          polynomial_coefficients (Tensor): coefficients of the polynomials (batch_size, poly_order+1)
+   #          times (Tensor): times at which to evaluate the polynomials (batch_size, num_times)
+   #          derivative_order (int): derivative order
+        
+   #      Returns:
+   #          Tensor: values of the polynomials at the given times
+   #      """
+   #      batch_size = polynomial_coefficients.size(0)
+   #      polynomial_order = polynomial_coefficients.size(1) - 1
+   #      num_times = times.size(1)
+        
+   #      values = torch.zeros((batch_size, num_times), device=times.device)
+        
+   #      if derivative_order <= 0:
+   #          for i in range(polynomial_order + 1):
+   #              values += polynomial_coefficients[:, i].unsqueeze(1) * times.pow(i)
+   #      else:
+   #          for i in range(derivative_order, polynomial_order + 1):
+   #              derivative_factor = torch.prod(torch.arange(i - derivative_order + 1, i + 1, device=times.device))
+   #              values += polynomial_coefficients[:, i].unsqueeze(1) * derivative_factor * times.pow(i - derivative_order)
+
+   #      return values
+   # def evaluate_polynomial_vectorized3(self,polynomial_coefficients, time, derivative_order):
+   #      """
+   #      Evaluate a polynomial at a given time.
+        
+   #      Args:
+   #          polynomial_coefficients (Tensor): coefficients of the polynomial
+   #          time (float): time at which to evaluate the polynomial
+   #          derivative_order (int): derivative order
+            
+   #      Returns:
+   #          float: value of the polynomial at the given time
+   #      """
+   #      value = 0
+   #      polynomial_order = len(polynomial_coefficients) - 1
+   #      if derivative_order <= 0:
+   #          for i in range(polynomial_order + 1):
+   #              value += polynomial_coefficients[i] * time ** i
+   #      else:
+   #          for i in range(derivative_order, polynomial_order + 1):
+   #              value += polynomial_coefficients[i] * np.prod(range(i - derivative_order + 1, i + 1)) * time ** (i - derivative_order)
+   #      return value
+   #above code is working but slow and below code is wrong
 
     # def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
     #     device = times.device
