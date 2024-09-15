@@ -445,6 +445,7 @@ class MinimumSnapTrajectoryPlanner:
             print("NaNs detected in final polynomial coefficients:", p)
 
         return p
+      #code block 1-----------------------------------------
       def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
         """
         Vectorized evaluation of polynomials and their derivatives.
@@ -541,6 +542,8 @@ class MinimumSnapTrajectoryPlanner:
 
         return values
 
+   #code block 2------+-------------------------------------------
+
    #  def evaluate_polynomials_vectorized(self, polynomial_coefficients, time_stamps, times, derivative_order):
    #      """
    #      Batch version of evaluate_polynomials_vectorized3.
@@ -624,6 +627,7 @@ class MinimumSnapTrajectoryPlanner:
    #              value += polynomial_coefficients[i] * np.prod(range(i - derivative_order + 1, i + 1)) * time ** (i - derivative_order)
    #      return value
    #above code is working but slow and below code is wrong
+   #code block 3-----------------------------------------
 
     # def evaluate_polynomial_vectorized(self, polynomial_coefficients, times, derivative_order):
     #     device = times.device
